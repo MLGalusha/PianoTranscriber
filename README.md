@@ -201,7 +201,7 @@ We are utilizing the **MAESTRO (MIDI and Audio Edited for Synchronous TRacks and
 - **MAESTRO Dataset**: [https://magenta.tensorflow.org/datasets/maestro](https://magenta.tensorflow.org/datasets/maestro)
 - **Related Research**:
   - [Enabling Factorized Piano Music Modeling and Generation with the MAESTRO Dataset](https://openreview.net/forum?id=r1lYRjC9F7)
-  - [Wave2Midi2Wave Blog Post](https://magenta.tensorflow.org/wave2mid2wave)
+  - [Wave2Midi2Wave Blog Post](https://magenta.tensorflow.org/maestro-wave2midi2wave)
 
 ---
 
