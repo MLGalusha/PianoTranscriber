@@ -1,3 +1,9 @@
+# Ignore Data Folder
+/data
+
+# Ignore virtual environment folder
+/music_env
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
