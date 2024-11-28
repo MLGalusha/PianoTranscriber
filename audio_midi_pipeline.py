@@ -3,7 +3,6 @@ import pretty_midi
 import librosa
 import numpy as np
 
-
 def midi_to_df(location):
     """
     Converts a MIDI file into a DataFrame with start_time, end_time, and pitch columns.
@@ -35,20 +34,16 @@ def generate_spectrogram(file_path):
     hop_length = 512
     S = librosa.stft(y, n_fft=n_fft, hop_length=hop_length)
     spectrogram = np.abs(S)
-    return [duration, spectrogram]
+    return duration, spectrogram
 
 def generate_time_df(duration, step):
     """
     Generates a DataFrame with seconds column, covering the entire duration of the song.
     """
-    time_list = []
+    # Generate time steps using numpy.arange
+    times = np.arange(0, duration, step)
 
-    # Generate the list using numpy.arange
-    numbers = np.arange(0, duration, step)  # Add step to include the endpoint if possible
-    for number in numbers:
-        time_list.append({"seconds": number})
-
-    time_df = pd.DataFrame(time_list)
+    time_df = pd.DataFrame({'seconds': times})
     # Reset index to ensure continuous indexing
     time_df.reset_index(drop=True, inplace=True)
     return time_df
@@ -70,7 +65,6 @@ def create_piano_roll(df, time_df):
 
         if 0 <= pitch_index < num_pitches:
             # Find indices where the note is active
-            # Create masks for seconds
             seconds_mask = (time_df['seconds'] >= start_seconds) & (time_df['seconds'] < end_seconds)
             active_indices = time_df[seconds_mask].index
 
@@ -80,9 +74,9 @@ def create_piano_roll(df, time_df):
             print(f"Pitch {pitch} is out of piano range.")
     return piano_roll
 
-def create_piano_roll_df(piano_roll, time_df):
+def create_piano_roll_df(piano_roll):
     """
-    Combines the piano roll matrix with time_df to create the final DataFrame.
+    Creates a DataFrame from the piano roll matrix with appropriate column names.
     """
     # Create column names for each pitch
     pitch_columns = [f'pitch_{pitch}' for pitch in range(21, 109)]  # MIDI notes 21 to 108
@@ -96,11 +90,37 @@ def process_files(location):
     """
     Main function to process a MIDI file and return a DataFrame indicating active pitches over time.
     """
+    # Generate MIDI DataFrame
     df = midi_to_df(location)
+
+    # Generate spectrogram and duration
     duration, spectrogram = generate_spectrogram(location)
-    time_df = generate_time_df(duration, duration/len(spectrogram[0]))
+
+    # Generate time DataFrame
+    time_df = generate_time_df(duration, duration / len(spectrogram[0]))
+
+    # Create piano roll matrix
     piano_roll = create_piano_roll(df, time_df)
-    piano_roll_df = create_piano_roll_df(piano_roll, time_df)
-    spectrogram_df = pd.DataFrame(spectrogram.T)
+
+    # Create DataFrames from spectrogram and piano roll
+    spectrogram_df = pd.DataFrame(spectrogram.T)  # Transpose to align time dimension
+    piano_roll_df = create_piano_roll_df(piano_roll)
+
+    # Combine spectrogram and piano roll DataFrames
     final_df = pd.concat([spectrogram_df, piano_roll_df], axis=1)
+
+    # Identify label columns (the last 88 columns)
+    label_columns = piano_roll_df.columns.tolist()
+
+    # Remove rows where any label is not 0 or 1
+    # Check if all labels in each row are either 0 or 1
+    condition = final_df[label_columns].isin([0, 1]).all(axis=1)
+    # Filter the DataFrame based on the condition
+    final_df = final_df[condition].reset_index(drop=True)
+    final_df.columns = final_df.columns.astype(str)
+
+    # Optionally, you can print how many rows were removed
+    num_removed = len(spectrogram_df) - len(final_df)
+    print(f"Removed {num_removed} rows with invalid label values.")
+
     return final_df
