@@ -1,7 +1,8 @@
+import os
 import pandas as pd
+import numpy as np
 import pretty_midi
 import librosa
-import numpy as np
 
 def midi_to_df(location):
     """
@@ -123,4 +124,30 @@ def process_files(location):
     num_removed = len(spectrogram_df) - len(final_df)
     print(f"Removed {num_removed} rows with invalid label values.")
 
-    return final_df
+    # Check for NaN or Inf values in the final_df
+    is_bad_data = final_df.isnull().any(axis=1) | np.isinf(final_df).any(axis=1)
+    bad_data = final_df[is_bad_data]
+    good_data = final_df[~is_bad_data]
+
+    # Optionally, handle bad data (e.g., save to a file or log)
+    if not bad_data.empty:
+        print(f"Removed {len(bad_data)} rows containing NaN or Inf values.")
+        # You can collect bad_data for further analysis if needed
+        # For example, save bad data to a CSV or Parquet file
+        # bad_data.to_parquet('bad_data.parquet', index=False)
+    else:
+        print("No NaN or Inf values found in the data.")
+
+    # Return the cleaned DataFrame
+    return good_data.reset_index(drop=True)
+
+# Example usage
+if __name__ == "__main__":
+    # Specify the location of your MIDI and WAV files (without the extension)
+    file_location = 'path/to/your/file'  # Replace with your actual file path
+
+    # Process the files
+    cleaned_df = process_files(file_location)
+
+    # Optionally, save the cleaned DataFrame to a file
+    # cleaned_df.to_parquet('cleaned_data.parquet', index=False)
