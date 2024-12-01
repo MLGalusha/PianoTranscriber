@@ -1,4 +1,5 @@
 import os
+import time
 import random
 import torch
 import torch.nn as nn
@@ -8,76 +9,84 @@ import pyarrow.parquet as pq
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 import numpy as np
 
-# Define the IterableDataset
-class SpectrogramIterableDataset(IterableDataset):
-    def __init__(self, file_list):
+# Custom IterableDataset with Weighted Sampling
+class WeightedSpectrogramIterableDataset(IterableDataset):
+    def __init__(self, file_list, positive_sample_rate=0.5):
         self.file_list = file_list
-
-    def parse_file(self, file_path):
-        # Open the Parquet file using PyArrow
-        parquet_file = pq.ParquetFile(file_path)
-
-        # Define batch size for reading chunks
-        batch_size = 5000  # Adjust based on memory constraints
-
-        # Iterate over the file in batches
-        for batch in parquet_file.iter_batches(batch_size=batch_size):
-            batch_df = batch.to_pandas()
-
-            # Split into inputs and labels
-            inputs_df = batch_df.iloc[:, :513]
-            labels_df = batch_df.iloc[:, 513:]
-
-            # Convert to tensors
-            inputs = torch.FloatTensor(inputs_df.values)
-            labels = torch.FloatTensor(labels_df.values)
-
-            # Yield individual samples
-            for input_tensor, label_tensor in zip(inputs, labels):
-                # Reshape input_tensor to match model's expected input shape
-                input_tensor = input_tensor.view(1, 1, 513)  # Shape: [channels, time, freq]
-                yield input_tensor, label_tensor
+        self.positive_sample_rate = positive_sample_rate  # Desired rate of positive samples
 
     def __iter__(self):
         for file_path in self.file_list:
             yield from self.parse_file(file_path)
 
+    def parse_file(self, file_path):
+        parquet_file = pq.ParquetFile(file_path)
+        batch_size = 5000  # Adjust as needed
+
+        for batch in parquet_file.iter_batches(batch_size=batch_size):
+            batch_df = batch.to_pandas()
+
+            inputs = torch.FloatTensor(batch_df.iloc[:, :513].values)
+            labels = torch.FloatTensor(batch_df.iloc[:, 513:].values)
+
+            for input_tensor, label_tensor in zip(inputs, labels):
+                # Corrected reshaping
+                input_tensor = input_tensor.view(1, 1, 513)  # [channels, height, width]
+
+                # Check if the sample is positive (has at least one active pitch)
+                is_positive = label_tensor.sum() > 0
+
+                # Apply sampling probability
+                if is_positive:
+                    # Include positive samples
+                    yield input_tensor, label_tensor
+                else:
+                    # Include negative samples with adjusted probability
+                    if random.random() < (1 - self.positive_sample_rate):
+                        yield input_tensor, label_tensor
+
 # Function to create DataLoader
-def get_data_loader(file_list, batch_size):
-    dataset = SpectrogramIterableDataset(file_list)
+def get_data_loader(dataset, batch_size):
     data_loader = DataLoader(dataset, batch_size=batch_size)
     return data_loader
 
-# Define the neural network model
+# Define the CNN model
 class PitchDetectionModel(nn.Module):
     def __init__(self, num_pitches=88):
         super(PitchDetectionModel, self).__init__()
 
+        # Reduced number of pooling layers and smaller kernels
         self.conv_layers = nn.Sequential(
-            # First convolutional block
+            # First conv block
             nn.Conv2d(1, 32, kernel_size=(1, 3), padding=(0, 1)),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.MaxPool2d((1, 2)),  # Pooling over frequency dimension
+            nn.MaxPool2d((1, 2)),  # Only pool frequency dimension
 
-            # Second convolutional block
+            # Second conv block
             nn.Conv2d(32, 64, kernel_size=(1, 3), padding=(0, 1)),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d((1, 2)),
 
-            # Third convolutional block
+            # Third conv block without pooling
             nn.Conv2d(64, 128, kernel_size=(1, 3), padding=(0, 1)),
             nn.BatchNorm2d(128),
             nn.ReLU(),
         )
 
-        # Calculate the size of the flattened features
-        # Input frequency dimension reduces from 513 to 128 after pooling
-        # So the feature map size is [batch_size, 128, 1, 128]
+        # Calculate flattened feature size
+        # Input dimensions: [batch_size, channels=1, height=1, width=513]
+        # After conv and pooling:
+        # Height remains 1
+        # Width after pooling: 513 / (2 * 2) = 128.25 -> floor to 128
+        # Channels after last conv layer: 128
+        self.flattened_size = 128 * 1 * 128  # channels * height * width
+
+        # Fully connected layers
         self.fc_layers = nn.Sequential(
             nn.Flatten(),  # Flatten all dimensions except batch
-            nn.Linear(128 * 1 * 128, 256),
+            nn.Linear(self.flattened_size, 256),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(256, num_pitches),
@@ -85,6 +94,7 @@ class PitchDetectionModel(nn.Module):
         )
 
     def forward(self, x):
+        # x shape: [batch_size, channels, height, width]
         x = self.conv_layers(x)
         x = self.fc_layers(x)
         return x
@@ -93,37 +103,58 @@ class PitchDetectionModel(nn.Module):
 def train_epoch(model, data_loader, criterion, optimizer, device):
     model.train()
     total_loss = 0
+    num_batches = 0  # Initialize batch counter
 
     for batch_idx, (data, target) in enumerate(data_loader):
         data, target = data.to(device), target.to(device)
 
         optimizer.zero_grad()
         output = model(data)
+
+        # Data validation checks for model outputs
+        if torch.isnan(output).any() or torch.isinf(output).any():
+            print(f"NaN or Inf detected in model outputs in batch {batch_idx}")
+            exit()
+
+        # Compute loss
         loss = criterion(output, target)
         loss.backward()
+
+        # Apply gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
         optimizer.step()
 
         total_loss += loss.item()
+        num_batches += 1  # Increment batch counter
 
         if batch_idx % 10 == 0:
             print(f'Batch {batch_idx}, Loss: {loss.item():.4f}')
 
-    average_loss = total_loss / len(data_loader)
+    average_loss = total_loss / num_batches
     return average_loss
 
 # Validation function
 def validate(model, data_loader, criterion, device):
     model.eval()
     total_loss = 0
+    num_batches = 0  # Initialize batch counter
 
     with torch.no_grad():
         for data, target in data_loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
+
+            # Data validation checks for model outputs
+            if torch.isnan(output).any() or torch.isinf(output).any():
+                print("NaN or Inf detected in model outputs during validation")
+                exit()
+
             loss = criterion(output, target)
             total_loss += loss.item()
+            num_batches += 1  # Increment batch counter
 
-    average_loss = total_loss / len(data_loader)
+    average_loss = total_loss / num_batches
     return average_loss
 
 # Evaluation functions
@@ -137,6 +168,7 @@ def evaluate_model(model, data_loader, device, threshold=0.5):
             data, target = data.to(device), target.to(device)
             outputs = model(data)
 
+            # Since the model outputs probabilities due to Sigmoid, no need to apply Sigmoid again
             # Convert predictions to binary using threshold
             predictions = (outputs > threshold).float()
 
@@ -203,7 +235,7 @@ def print_evaluation_results(metrics_df, overall_metrics):
     print("\nF1 Score Distribution:")
     print(metrics_df['F1 Score'].describe())
 
-def evaluate_saved_model(model_path, file_list, batch_size=128):
+def evaluate_saved_model(model_path, dataset, batch_size=64):
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -211,8 +243,8 @@ def evaluate_saved_model(model_path, file_list, batch_size=128):
     model = torch.load(model_path)
     model = model.to(device)
 
-    # Create data loader using the same dataset class
-    data_loader = get_data_loader(file_list, batch_size=batch_size)
+    # Create data loader using the same dataset
+    data_loader = get_data_loader(dataset, batch_size=batch_size)
 
     # Evaluate model
     metrics_df, overall_metrics = evaluate_model(model, data_loader, device)
@@ -229,59 +261,78 @@ def main():
     print(f"Using device: {device}")
 
     # List of your batch file paths
-    file_list = [f'data/master_dataframe_batch_{i}.parquet' for i in range(1, 5)]
+    file_list = [f'data/master_dataframe_batch_{i}.parquet' for i in range(1, 3)]  # Adjust file indices as needed
 
     # Shuffle the file list to ensure randomness
     random.shuffle(file_list)
 
     # Split file list into training and validation sets
-    split_ratio = 0.8  # 80% training, 20% validation
+    split_ratio = 0.9  # 90% training, 10% validation
     split_index = int(len(file_list) * split_ratio)
     train_files = file_list[:split_index]
     val_files = file_list[split_index:]
 
+    # Create datasets with WeightedSampling
+    train_dataset = WeightedSpectrogramIterableDataset(train_files, positive_sample_rate=0.5)
+    val_dataset = WeightedSpectrogramIterableDataset(val_files, positive_sample_rate=1.0)  # Use full data for validation
+
     # Create data loaders
-    batch_size = 128  # Adjust based on memory constraints
-    train_loader = get_data_loader(train_files, batch_size=batch_size)
-    val_loader = get_data_loader(val_files, batch_size=batch_size)
+    batch_size = 64  # Adjust based on memory constraints
+    train_loader = get_data_loader(train_dataset, batch_size=batch_size)
+    val_loader = get_data_loader(val_dataset, batch_size=batch_size)
 
     # Initialize the model and move it to the device
-    model = PitchDetectionModel(num_pitches=88)  # 88 pitches
-    model = model.to(device)
+    model = PitchDetectionModel(num_pitches=88).to(device)
 
     # Define loss function and optimizer
-    criterion = nn.BCELoss()  # Binary Cross-Entropy Loss
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    # Since the model outputs probabilities (Sigmoid activation), use BCELoss
+    # If you want to use pos_weight, you need to use BCEWithLogitsLoss and remove Sigmoid from the model
+    criterion = nn.BCELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
 
-    # Training loop
-    num_epochs = 20  # Adjust number of epochs
+    # Training loop with early stopping
+    num_epochs = 20  # Adjust as needed
     best_val_loss = float('inf')
+    patience = 15  # Number of epochs to wait before early stopping
+    counter = 0
 
-    for epoch in range(num_epochs):
-        print(f"\nEpoch {epoch+1}/{num_epochs}")
+    try:
+        for epoch in range(num_epochs):
+            print(f"\nEpoch {epoch+1}/{num_epochs}")
 
-        train_loss = train_epoch(model, train_loader, criterion, optimizer, device)
-        val_loss = validate(model, val_loader, criterion, device)
+            train_loss = train_epoch(model, train_loader, criterion, optimizer, device)
+            val_loss = validate(model, val_loader, criterion, device)
 
-        print(f"Training Loss: {train_loss:.4f}")
-        print(f"Validation Loss: {val_loss:.4f}")
+            print(f"Training Loss: {train_loss:.4f}")
+            print(f"Validation Loss: {val_loss:.4f}")
 
-        # Save the model if it has the best validation loss so far
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            # Save the entire model
-            torch.save(model, 'best_pitch_model.pth')
-            print("Saved best model!")
+            # Early stopping logic
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                counter = 0
+                torch.save(model, 'best_pitch_model.pth')
+                print("Saved best model!")
+            else:
+                counter += 1
+                print(f"No improvement in validation loss for {counter} epochs.")
+                if counter >= patience:
+                    print("Early stopping triggered.")
+                    break
 
-    # Save the final model
-    torch.save(model, 'final_pitch_model.pth')
-    print("Training complete. Final model saved.")
+        # Save the final model
+        torch.save(model, 'final_pitch_model.pth')
+        print("Training complete. Final model saved.")
+
+    except Exception as e:
+        print(f"An error occurred during training: {e}")
+        torch.save(model.state_dict(), 'model_error_state.pth')
+        raise
 
     # Evaluate the saved model
     print("\nEvaluating the best saved model on validation data...")
     metrics_df, overall_metrics = evaluate_saved_model(
         model_path='best_pitch_model.pth',
-        file_list=val_files,
+        dataset=val_dataset,
         batch_size=batch_size
     )
 
@@ -289,6 +340,10 @@ def main():
     metrics_df.to_csv('pitch_detection_metrics.csv', index=False)
     print("Evaluation metrics saved to 'pitch_detection_metrics.csv'.")
 
-# Run the main function
 if __name__ == "__main__":
     main()
+    # Wait for 60 seconds before shutting down
+    print("Training completed. The system will shut down in 60 seconds.")
+    time.sleep(60)
+    os.system("sudo shutdown -h now")
+
