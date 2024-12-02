@@ -2,7 +2,10 @@
 /data
 
 # Ignore virtual environment folder
-/music_env
+# /music_env
+
+# Ignore gcloud server
+/google-cloud-sdk
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
