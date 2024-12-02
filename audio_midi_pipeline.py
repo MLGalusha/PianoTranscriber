@@ -3,12 +3,17 @@ import pandas as pd
 import numpy as np
 import pretty_midi
 import librosa
+import torch
 
 def midi_to_df(location):
     """
     Converts a MIDI file into a DataFrame with start_time, end_time, and pitch columns.
     """
-    midi_data = pretty_midi.PrettyMIDI(f"{location}midi")
+    try:
+        midi_data = pretty_midi.PrettyMIDI(f"{location}midi")
+    except FileNotFoundError:
+        return None
+
     data = []
 
     # Loop through instruments and notes
@@ -25,8 +30,14 @@ def midi_to_df(location):
     return df
 
 def generate_spectrogram(file_path):
+
+    if os.path.exists(f"{file_path}wav"):
+        file_path = f"{file_path}wav"
+    elif os.path.exists(f"{file_path}mp3"):
+        file_path = f"{file_path}mp3"
+
     # Load audio
-    y, sr = librosa.load(f"{file_path}wav", sr=44100)
+    y, sr = librosa.load(file_path, sr=44100)
 
     duration = librosa.get_duration(y=y, sr=sr)
 
@@ -100,46 +111,52 @@ def process_files(location):
     # Generate time DataFrame
     time_df = generate_time_df(duration, duration / len(spectrogram[0]))
 
-    # Create piano roll matrix
-    piano_roll = create_piano_roll(df, time_df)
-
     # Create DataFrames from spectrogram and piano roll
     spectrogram_df = pd.DataFrame(spectrogram.T)  # Transpose to align time dimension
-    piano_roll_df = create_piano_roll_df(piano_roll)
 
-    # Combine spectrogram and piano roll DataFrames
-    final_df = pd.concat([spectrogram_df, piano_roll_df], axis=1)
+    if df:
+        # Create piano roll matrix
+        piano_roll = create_piano_roll(df, time_df)
 
-    # Identify label columns (the last 88 columns)
-    label_columns = piano_roll_df.columns.tolist()
+        piano_roll_df = create_piano_roll_df(piano_roll)
 
-    # Remove rows where any label is not 0 or 1
-    # Check if all labels in each row are either 0 or 1
-    condition = final_df[label_columns].isin([0, 1]).all(axis=1)
-    # Filter the DataFrame based on the condition
-    final_df = final_df[condition].reset_index(drop=True)
-    final_df.columns = final_df.columns.astype(str)
+        # Combine spectrogram and piano roll DataFrames
+        final_df = pd.concat([spectrogram_df, piano_roll_df], axis=1)
 
-    # Optionally, you can print how many rows were removed
-    num_removed = len(spectrogram_df) - len(final_df)
-    print(f"Removed {num_removed} rows with invalid label values.")
+        # Identify label columns (the last 88 columns)
+        label_columns = piano_roll_df.columns.tolist()
 
-    # Check for NaN or Inf values in the final_df
-    is_bad_data = final_df.isnull().any(axis=1) | np.isinf(final_df).any(axis=1)
-    bad_data = final_df[is_bad_data]
-    good_data = final_df[~is_bad_data]
+        # Remove rows where any label is not 0 or 1
+        # Check if all labels in each row are either 0 or 1
+        condition = final_df[label_columns].isin([0, 1]).all(axis=1)
 
-    # Optionally, handle bad data (e.g., save to a file or log)
-    if not bad_data.empty:
-        print(f"Removed {len(bad_data)} rows containing NaN or Inf values.")
-        # You can collect bad_data for further analysis if needed
-        # For example, save bad data to a CSV or Parquet file
-        # bad_data.to_parquet('bad_data.parquet', index=False)
+        # Filter the DataFrame based on the condition
+        final_df = final_df[condition].reset_index(drop=True)
+        final_df.columns = final_df.columns.astype(str)
+
+        # Optionally, you can print how many rows were removed
+        num_removed = len(spectrogram_df) - len(final_df)
+        print(f"Removed {num_removed} rows with invalid label values.")
+
+        # Check for NaN or Inf values in the final_df
+        is_bad_data = final_df.isnull().any(axis=1) | np.isinf(final_df).any(axis=1)
+        bad_data = final_df[is_bad_data]
+        final_df = final_df[~is_bad_data].reset_index(drop=True)
+
+
+        # Optionally, handle bad data (e.g., save to a file or log)
+        if not bad_data.empty:
+            print(f"Removed {len(bad_data)} rows containing NaN or Inf values.")
+            # You can collect bad_data for further analysis if needed
+            # For example, save bad data to a CSV or Parquet file
+            # bad_data.to_parquet('bad_data.parquet', index=False)
+        else:
+            print("No NaN or Inf values found in the data.")
     else:
-        print("No NaN or Inf values found in the data.")
+        final_df = torch.FloatTensor(spectrogram_df.values)
 
     # Return the cleaned DataFrame
-    return good_data.reset_index(drop=True)
+    return final_df
 
 # Example usage
 if __name__ == "__main__":
