@@ -1,93 +1,93 @@
 # PianoTranscriber
 
-## Detailed Explanation
-
-PianoTranscriber is a project designed to bridge the gap between live piano performances and their digital transcription into MIDI files, with the ultimate goal of generating sheet music. This endeavor combines the fields of audio processing, machine learning, and musicology to create a tool that can analyze raw piano audio, determine the notes being played, and produce a digital representation in MIDI format. Below is an in-depth explanation of the project, its components, and its purpose.
+PianoTranscriber is a project designed to bridge the gap between live piano performances and their digital transcription into MIDI files, with the ultimate goal of generating sheet music. This project combines audio processing, machine learning, and music knowledge to create a tool that can analyze raw piano audio, figure out the notes being played, and produce a digital MIDI file. Here’s an explanation of the project, its parts, and its purpose.
 
 ### What is PianoTranscriber?
 
-PianoTranscriber is a deep learning application that leverages audio-to-MIDI transcription to convert piano recordings into a digital format. The ultimate aim is to simplify the process of capturing live performances or compositions, enabling musicians to refine and replay their work. It is particularly valuable for those who want to generate sheet music from their playing or analyze compositions without manually transcribing them.
+PianoTranscriber is a deep learning tool that converts piano recordings into a MIDI format using audio-to-MIDI transcription. The goal is to make it easier for musicians to record their live performances or compositions and turn them into something they can refine or replay. It's especially useful for creating sheet music from recordings or analyzing compositions without needing to do it manually.
 
-At its core, the project uses a Convolutional Neural Network (CNN) to analyze spectrograms of piano audio and predict which notes are being played at specific time intervals. These predictions are stored as MIDI files, which can then be converted into sheet music using specialized tools.
+At the heart of the project is a Convolutional Neural Network (CNN) that analyzes spectrograms of piano audio and predicts which notes are being played at specific times. The predictions are saved as MIDI files, which can later be turned into sheet music using other tools.
 
 ### Why is this project valuable?
 
-The ability to transcribe audio into MIDI and sheet music has multiple applications:
+Turning audio into MIDI and sheet music has a lot of potential uses:
 
-1. **For Musicians:** Enables players to document and refine improvisations or compositions without requiring manual transcription.
-2. **For Educators:** Provides a way to analyze and understand complex piano pieces.
-3. **For Learners:** Helps students visualize the notes and timing of a performance for practice and study.
-4. **For Researchers:** Offers insights into how machine learning can interpret complex audio data in real time.
+1. **For Musicians:** Helps players document and improve improvisations or compositions without having to write them out manually.
+2. **For Educators:** Makes it easier to break down and understand complex piano pieces.
+3. **For Learners:** Lets students see the notes and timing of a performance for practice or study.
+4. **For Researchers:** Shows how machine learning can handle complex audio data in real time.
 
 ### How does it work?
 
-The project can be broken down into several key components:
+The project is broken into a few key parts:
 
 #### Dataset
 
-The project relies on the MAESTRO dataset, a high-quality collection of paired piano audio and MIDI recordings. This dataset was created using Yamaha Disklavier pianos, which are capable of capturing MIDI data with millisecond-level precision during live performances. The dataset includes around 200 hours of music from classical piano competitions, providing a rich source for training and validating the model.
+PianoTranscriber uses the MAESTRO dataset, which is a collection of paired piano audio and MIDI recordings. It was made using Yamaha Disklavier pianos, which can capture MIDI data very precisely during live performances. The dataset includes about 200 hours of classical piano music from competitions, making it a great source for training the model.
 
 #### Data Preprocessing
 
-Before feeding data into the model, the audio and MIDI files must be processed. The steps include:
+Before data is sent into the model, both the audio and MIDI files need some prep work:
 
-- **Audio Processing:** Converting audio recordings into spectrograms, which are visual representations of sound that show frequency content over time. Transposing spectrograms so that each row corresponds to a specific moment in time (approximately 11 milliseconds per row).
-- **MIDI Processing:** Extracting the timing and pitch of each note from the MIDI files. Aligning the MIDI data with the corresponding spectrogram rows to create a "piano roll," a binary matrix where each column represents a key on the piano and each row corresponds to a time interval.
+- **Audio Processing:** Convert audio recordings into spectrograms (visual representations of sound over time). Adjust the spectrograms so each row represents about 11 milliseconds of time.
+- **MIDI Processing:** Pull the timing and pitch information from the MIDI files. Match the MIDI data to the spectrogram rows to create a "piano roll," which is like a binary grid where each column is a piano key and each row is a time step.
 
-This preprocessing step ensures that the model receives properly formatted input (spectrograms) and output (piano rolls) for training.
+This preprocessing ensures the model gets properly formatted inputs (spectrograms) and outputs (piano rolls) for training.
 
 #### Model Architecture
 
-The core of PianoTranscriber is a CNN designed to predict which notes are active at any given moment based on spectrogram input. The model:
+The core of the project is a CNN that predicts which notes are active at any moment based on the spectrogram input. The model:
 
-- Processes the spectrogram data using convolutional layers to extract time-frequency patterns.
-- Outputs probabilities for each of the 88 piano keys, representing whether a note is active during a given time slice.
+- Uses convolutional layers to find patterns in the spectrogram data.
+- Outputs probabilities for all 88 piano keys, showing whether a note is active at a specific time slice.
 
-The network is trained to minimize the difference between its predictions and the actual MIDI piano roll data.
+The model is trained to minimize the difference between its predictions and the actual piano roll data.
 
 #### Training Process
 
-Due to the large size of the dataset (~100GB) and memory constraints, the data is processed in batches:
+Because the dataset is large (~100GB), the data is handled in smaller batches:
 
-- The dataset is split into smaller, preprocessed files.
-- These files are loaded into memory one at a time, and their data is passed through the model in batches.
-- During training, the model learns to associate spectrogram patterns with the corresponding piano notes, adjusting its parameters to improve accuracy.
+- The dataset is divided into smaller preprocessed files.
+- Files are loaded one at a time into memory and passed through the model in batches.
+- The model learns to match spectrogram patterns to piano notes, adjusting its parameters to improve accuracy.
 
-The training is performed on Google Cloud's virtual machines, which provide the necessary computational power to handle such large-scale data.
+Training runs on Google Cloud’s virtual machines, which have the power needed for large-scale data processing.
 
 #### Output Generation
 
-Once trained, the model can be used to predict the notes being played in new audio recordings. The workflow includes:
+Once trained, the model can predict notes from new audio recordings. The workflow looks like this:
 
-1. **Spectrogram Creation:** The input audio file is converted into a spectrogram.
-2. **Model Prediction:** The spectrogram is passed through the trained model to generate predictions for each time slice.
-3. **MIDI Conversion:** The predictions are converted into a MIDI file, representing the timing and pitch of the notes.
-4. **Sheet Music Generation:** The MIDI file can be further processed using tools like MuseScore to produce readable sheet music.
+1. **Spectrogram Creation:** Turn the audio file into a spectrogram.
+2. **Model Prediction:** Pass the spectrogram through the trained model to predict notes for each time slice.
+3. **MIDI Conversion:** Convert the predictions into a MIDI file that represents the timing and pitch of notes.
+4. **Sheet Music Generation:** Use tools like MuseScore to create readable sheet music from the MIDI file.
 
 ### What makes this project challenging?
 
-Several factors made the development of PianoTranscriber a complex task:
+A few things made this project tricky:
 
-1. **Data Size:** The large size of the dataset required careful memory management and efficient batch processing.
-2. **Accuracy:** Ensuring that the model correctly identifies overlapping notes and dynamic changes in playing.
-3. **Training Environment:** Setting up and troubleshooting the Google Cloud virtual machine for model training required significant effort.
-4. **Integration:** Aligning audio and MIDI data with millisecond precision was essential for accurate predictions.
+1. **Data Size:** The dataset’s size required careful memory management and efficient batch processing.
+2. **Accuracy:** The model needed to handle overlapping notes and changes in dynamics accurately.
+3. **Training Environment:** Setting up and troubleshooting the Google Cloud virtual machine for training was a challenge.
+4. **Integration:** Aligning audio and MIDI data with millisecond precision was key for good predictions.
 
 ### What has been achieved?
 
-- **MIDI Output:** The model successfully converts piano audio into MIDI format.
-- **Pipeline Automation:** The preprocessing and training pipelines are fully automated, making it easy to replicate the process on new data.
-- **Cloud Integration:** The project leverages cloud computing to handle the computational demands of training large-scale models.
+- **MIDI Output:** The model can successfully turn piano audio into MIDI files.
+- **Pipeline Automation:** The preprocessing and training pipelines are automated, making it easier to repeat the process with new data.
+- **Cloud Integration:** The project uses cloud computing to handle the heavy lifting during training.
 
 ### Future Work
 
-While the project demonstrates the feasibility of audio-to-MIDI transcription, there is room for improvement:
+While the project shows that audio-to-MIDI transcription works, there’s still room to grow:
 
-1. **Enhanced Accuracy:** Fine-tuning the model and training on additional data could improve performance.
-2. **Sheet Music Integration:** Developing a seamless pipeline from audio to sheet music.
-3. **Real-Time Transcription:** Optimizing the system for real-time applications, such as live performances.
-4. **User Interface:** Creating a user-friendly app for musicians and educators.
+1. **Enhanced Accuracy:** Fine-tune the model and train it on more data to improve performance.
+2. **Sheet Music Integration:** Build a more efficient pipeline to go straight from audio to sheet music.
+3. **Real-Time Transcription:** Optimize the system for real-time use, like during live performances.
+4. **User Interface:** Create an app that’s easy for musicians and educators to use.
+5. **Better Labeled Data:** Add more details like tempo, dynamics, and other features from the music to make the transcription more useful.
+6. **More Features:** Include things like chord detection or key changes to give a more complete picture of the performance.
 
 ### Conclusion
 
-PianoTranscriber is a step forward in leveraging AI to simplify music transcription. By combining advanced machine learning techniques with high-quality datasets, it paves the way for tools that can make music more accessible to creators, learners, and enthusiasts alike. While there is still work to be done, the progress achieved demonstrates the potential of AI in the field of music technology.
+PianoTranscriber is a step forward in leveraging AI to simplify music transcription. By combining machine learning techniques with high-quality datasets, it opens up new ways for musicians, students, and researchers to work with music. While there is still work to be done, the progress achieved demonstrates the potential of AI in the field of music technology.
