@@ -1,208 +1,93 @@
-# MusicTranscriber
+# PianoTranscriber
 
-An AI-powered tool for transcribing solo piano performances from MP3 files into MIDI and sheet music using deep learning.
+## Detailed Explanation
 
-## Overview
+PianoTranscriber is a project designed to bridge the gap between live piano performances and their digital transcription into MIDI files, with the ultimate goal of generating sheet music. This endeavor combines the fields of audio processing, machine learning, and musicology to create a tool that can analyze raw piano audio, determine the notes being played, and produce a digital representation in MIDI format. Below is an in-depth explanation of the project, its components, and its purpose.
 
-**MusicTranscriber** aims to convert raw audio recordings of solo piano performances into accurate MIDI files and corresponding sheet music. By leveraging the [MAESTRO dataset](https://magenta.tensorflow.org/datasets/maestro) and deep learning techniques, we focus on capturing the nuances of piano music—including notes, chords, timing, and dynamics.
+### What is PianoTranscriber?
 
-## Objectives
+PianoTranscriber is a deep learning application that leverages audio-to-MIDI transcription to convert piano recordings into a digital format. The ultimate aim is to simplify the process of capturing live performances or compositions, enabling musicians to refine and replay their work. It is particularly valuable for those who want to generate sheet music from their playing or analyze compositions without manually transcribing them.
 
-- **Accurate Transcription**: Convert MP3 audio files of piano performances into MIDI files with high fidelity.
-- **Polyphonic Handling**: Effectively transcribe multiple notes played simultaneously (chords).
-- **Dynamic Expression**: Capture the velocity (loudness) and articulation of each note.
-- **Sheet Music Generation**: Translate MIDI files into readable sheet music for musicians.
-- **Model Robustness**: Enhance the model's performance through data augmentation and architectural improvements.
+At its core, the project uses a Convolutional Neural Network (CNN) to analyze spectrograms of piano audio and predict which notes are being played at specific time intervals. These predictions are stored as MIDI files, which can then be converted into sheet music using specialized tools.
 
-## Data Source
+### Why is this project valuable?
 
-We are utilizing the **MAESTRO (MIDI and Audio Edited for Synchronous TRacks and Organization) dataset**, which comprises approximately 200 hours of virtuosic piano performances with fine alignment (~3 ms) between note labels and audio waveforms.
+The ability to transcribe audio into MIDI and sheet music has multiple applications:
 
-- **Content**: Paired audio and MIDI recordings from ten years of International Piano-e-Competition.
-- **Features**: Key strike velocities, sustain/sostenuto/una corda pedal positions, and detailed metadata.
-- **Quality**: Uncompressed audio of CD quality or higher (44.1–48 kHz 16-bit PCM stereo).
-- **License**: Creative Commons Attribution Non-Commercial Share-Alike 4.0 (CC BY-NC-SA 4.0).
+1. **For Musicians:** Enables players to document and refine improvisations or compositions without requiring manual transcription.
+2. **For Educators:** Provides a way to analyze and understand complex piano pieces.
+3. **For Learners:** Helps students visualize the notes and timing of a performance for practice and study.
+4. **For Researchers:** Offers insights into how machine learning can interpret complex audio data in real time.
 
----
+### How does it work?
 
-## Planned Workflow
+The project can be broken down into several key components:
 
-### 1. Data Preparation
+#### Dataset
 
-- **Download & Organize Data**:
+The project relies on the MAESTRO dataset, a high-quality collection of paired piano audio and MIDI recordings. This dataset was created using Yamaha Disklavier pianos, which are capable of capturing MIDI data with millisecond-level precision during live performances. The dataset includes around 200 hours of music from classical piano competitions, providing a rich source for training and validating the model.
 
-  - Obtain MP3 audio files and MIDI files from the [MAESTRO dataset](https://magenta.tensorflow.org/datasets/maestro).
-  - Ensure data integrity and proper alignment between audio and MIDI files.
+#### Data Preprocessing
 
-- **Segment Tracks**:
-  - Normalize all tracks to 1-minute segments.
-    - Pad shorter tracks with silence.
-    - Truncate longer tracks to fit the desired length.
-  - Optionally, use overlapping segments (e.g., 50% overlap) to capture more context.
+Before feeding data into the model, the audio and MIDI files must be processed. The steps include:
 
-### 2. Feature Extraction
+- **Audio Processing:** Converting audio recordings into spectrograms, which are visual representations of sound that show frequency content over time. Transposing spectrograms so that each row corresponds to a specific moment in time (approximately 11 milliseconds per row).
+- **MIDI Processing:** Extracting the timing and pitch of each note from the MIDI files. Aligning the MIDI data with the corresponding spectrogram rows to create a "piano roll," a binary matrix where each column represents a key on the piano and each row corresponds to a time interval.
 
-- **From MIDI Files (Labels)**:
+This preprocessing step ensures that the model receives properly formatted input (spectrograms) and output (piano rolls) for training.
 
-  - Extract note-level features:
-    - **Pitch**: Specific notes being played.
-    - **Onset Time**: When each note starts.
-    - **Offset Time**: When each note ends.
-    - **Velocity**: Loudness of each note.
-    - **Duration**: How long each note is held.
-  - Compile these into a structured format for model training.
+#### Model Architecture
 
-- **From MP3 Files (Input)**:
-  - Convert MP3 files into **Mel-spectrograms** using `librosa` or a similar library.
-    - Provides a time-frequency representation of the audio.
-  - Normalize spectrograms for consistent input.
+The core of PianoTranscriber is a CNN designed to predict which notes are active at any given moment based on spectrogram input. The model:
 
-### 3. Model Development
+- Processes the spectrogram data using convolutional layers to extract time-frequency patterns.
+- Outputs probabilities for each of the 88 piano keys, representing whether a note is active during a given time slice.
 
-- **Start Simple (Pitch, Onset & Offset Detection)**:
+The network is trained to minimize the difference between its predictions and the actual MIDI piano roll data.
 
-  - **Input**: Mel-spectrograms.
-  - **Output**:
-    - Predict which notes are playing (pitch detection).
-    - Predict when each note starts (onset detection).
-    - Predict when each note ends (offset detection).
+#### Training Process
 
-- **Model Architecture**:
-  1. **Convolutional Neural Network (CNN) Layers**:
-     - Extract time-frequency patterns from spectrograms.
-  2. **Recurrent Neural Network (RNN) Layers (LSTM/GRU)**:
-     - Capture temporal dependencies between notes.
-  3. **Output Layers**:
-     - **Pitch Detection**: Binary vector for active notes per time frame.
-     - **Onset Detection**: Binary vector indicating note starts.
-     - **Offset Detection**: Binary vector indicating note ends.
+Due to the large size of the dataset (~100GB) and memory constraints, the data is processed in batches:
 
-### 4. Training Strategy
+- The dataset is split into smaller, preprocessed files.
+- These files are loaded into memory one at a time, and their data is passed through the model in batches.
+- During training, the model learns to associate spectrogram patterns with the corresponding piano notes, adjusting its parameters to improve accuracy.
 
-- **Loss Functions**:
+The training is performed on Google Cloud's virtual machines, which provide the necessary computational power to handle such large-scale data.
 
-  - **Pitch Detection**: Binary cross-entropy loss.
-  - **Onset Detection**: Binary cross-entropy loss.
-  - **Offset Detection**: Binary cross-entropy loss.
+#### Output Generation
 
-- **Optimization**:
-  - Use optimizers like Adam or RMSprop.
-  - Implement learning rate scheduling and early stopping.
+Once trained, the model can be used to predict the notes being played in new audio recordings. The workflow includes:
 
-### 5. Gradual Complexity Increase
+1. **Spectrogram Creation:** The input audio file is converted into a spectrogram.
+2. **Model Prediction:** The spectrogram is passed through the trained model to generate predictions for each time slice.
+3. **MIDI Conversion:** The predictions are converted into a MIDI file, representing the timing and pitch of the notes.
+4. **Sheet Music Generation:** The MIDI file can be further processed using tools like MuseScore to produce readable sheet music.
 
-- **Incorporate Velocity and Dynamics**:
+### What makes this project challenging?
 
-  - Predict the velocity (loudness) of each note.
-  - Add multi-output layers to handle additional features like dynamics and articulation.
+Several factors made the development of PianoTranscriber a complex task:
 
-- **Handling Chords and Polyphony**:
+1. **Data Size:** The large size of the dataset required careful memory management and efficient batch processing.
+2. **Accuracy:** Ensuring that the model correctly identifies overlapping notes and dynamic changes in playing.
+3. **Training Environment:** Setting up and troubleshooting the Google Cloud virtual machine for model training required significant effort.
+4. **Integration:** Aligning audio and MIDI data with millisecond precision was essential for accurate predictions.
 
-  - Ensure the model effectively transcribes multiple notes played simultaneously.
-  - Use advanced architectures known for handling polyphonic music.
+### What has been achieved?
 
-- **Data Augmentation with Digital Pianos**:
-  - Record custom datasets using digital pianos to include complex chords and sequences.
-  - Synchronize audio and MIDI data for accurate labeling.
+- **MIDI Output:** The model successfully converts piano audio into MIDI format.
+- **Pipeline Automation:** The preprocessing and training pipelines are fully automated, making it easy to replicate the process on new data.
+- **Cloud Integration:** The project leverages cloud computing to handle the computational demands of training large-scale models.
 
-### 6. Evaluation & Metrics
+### Future Work
 
-- **Quantitative Metrics**:
+While the project demonstrates the feasibility of audio-to-MIDI transcription, there is room for improvement:
 
-  - **Pitch Detection**: Accuracy and F1-score.
-  - **Onset Detection**: Precision, recall, and F1-score.
-  - **Offset Detection**: Evaluate timing accuracy.
-  - **Chord Recognition**: Specific metrics for chord transcription accuracy.
+1. **Enhanced Accuracy:** Fine-tuning the model and training on additional data could improve performance.
+2. **Sheet Music Integration:** Developing a seamless pipeline from audio to sheet music.
+3. **Real-Time Transcription:** Optimizing the system for real-time applications, such as live performances.
+4. **User Interface:** Creating a user-friendly app for musicians and educators.
 
-- **Transcription Quality**:
-  - **Edit Distance/BLEU Score**: Compare predicted MIDI files with ground truth.
-  - **Subjective Evaluation**: Have pianists assess the playability and correctness of transcriptions.
+### Conclusion
 
-### 7. Optimization & Augmentation
-
-- **Data Augmentation Techniques**:
-
-  - **Pitch Shifting**: To generalize across different keys.
-  - **Time Stretching**: To handle variations in tempo.
-  - **Dynamic Range Augmentation**: Vary note velocities.
-  - **Noise Injection**: Add background noise for robustness.
-
-- **Model Regularization**:
-
-  - Use dropout layers and L2 regularization to prevent overfitting.
-  - Implement batch normalization.
-
-- **Batch Augmentation**:
-  - Apply augmentations to each mini-batch during training for variety.
-
-### 8. Computational Resources
-
-- **Cloud Computing with Google Cloud**:
-  - Set up virtual machines with appropriate specifications.
-  - Monitor resource usage to stay within free trial limits.
-  - Optimize code to reduce computational load.
-
-### 9. Future Considerations
-
-- **Genre Expansion**:
-
-  - Incorporate music from genres beyond classical to improve generalization.
-
-- **Instrument Expansion**:
-
-  - Adapt the model for other instruments like guitar, considering their unique notation systems.
-
-- **User Interface Development**:
-
-  - Develop a simple application or web interface for users to input MP3 files and receive sheet music.
-
-- **Incorporate Music Theory**:
-  - Embed music theory rules to enhance prediction accuracy, especially for unseen chords.
-
----
-
-## Additional Notes
-
-- **Collaboration Tools**:
-
-  - Use GitHub issues and pull requests for code collaboration.
-  - Schedule regular meetings for theory discussion and progress updates.
-
-- **Challenges to Address**:
-
-  - **Chord Complexity**: Due to the vast number of possible chords, ensure sufficient training data and model capacity.
-  - **Data Volume**: Manage the large size of the MAESTRO dataset effectively.
-  - **Computational Limitations**: Optimize algorithms to run efficiently on available hardware.
-
-- **Team Goals**:
-  - Divide tasks based on expertise (data preparation, model development, evaluation).
-  - Encourage knowledge sharing, especially in areas like music theory and machine learning techniques.
-
----
-
-## Getting Started
-
-- **Prerequisites**:
-
-  - Python 3.x environment.
-  - Libraries: TensorFlow or PyTorch, `librosa`, NumPy, pandas, etc.
-  - Sufficient storage for the dataset (~120 GB uncompressed).
-
-- **Setup Instructions**:
-  1. Clone the repository: `git clone https://github.com/YourUsername/MusicTranscriber.git`
-  2. Download the MAESTRO dataset and place it in the designated data folder.
-  3. Install required packages: `pip install -r requirements.txt`
-  4. Run initial data processing scripts.
-
----
-
-## References
-
-- **MAESTRO Dataset**: [https://magenta.tensorflow.org/datasets/maestro](https://magenta.tensorflow.org/datasets/maestro)
-- **Related Research**:
-  - [Enabling Factorized Piano Music Modeling and Generation with the MAESTRO Dataset](https://openreview.net/forum?id=r1lYRjC9F7)
-  - [Wave2Midi2Wave Blog Post](https://magenta.tensorflow.org/maestro-wave2midi2wave)
-
----
-
-_Let's collaborate to make MusicTranscriber a cutting-edge solution for music transcription!_
+PianoTranscriber is a step forward in leveraging AI to simplify music transcription. By combining advanced machine learning techniques with high-quality datasets, it paves the way for tools that can make music more accessible to creators, learners, and enthusiasts alike. While there is still work to be done, the progress achieved demonstrates the potential of AI in the field of music technology.
