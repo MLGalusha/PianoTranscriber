@@ -23,45 +23,92 @@ def shutdown_vm():
     sys.exit(1)
 
 def save_dataframes(file_list, batch_size=130):
-    df_list = []
+    df_train_list = []
+    df_test_list = []
+    batch_file_list = []
     batch_number = 1
     total_files = len(file_list)
     iterations = 0
 
     for path in file_list:
         iterations += 1
+        batch_file_list.append(path)
+
+        # When batch_size is reached or it's the last file, process the batch
+        if len(batch_file_list) >= batch_size or iterations == total_files:
+            # Select 3 files for testing per batch
+            test_file_paths = batch_file_list[:3]  # Take the first 3 files for testing
+            train_file_paths = batch_file_list[3:]  # Remaining files for training
+
+            processed_files = iterations - len(batch_file_list)
+            for idx, file_path in enumerate(batch_file_list):
+                try:
+                    df = process_files(file_path)
+                    processed_files += 1
+                    print(f"Processed File {processed_files}/{total_files}: {file_path}")
+                    if file_path in test_file_paths:
+                        df_test_list.append(df)
+                    else:
+                        df_train_list.append(df)
+                except Exception as e:
+                    print(f"Error processing {file_path}: {e}")
+                    # Stop the virtual machine if an error occurs
+                    print("An error occurred during processing. Shutting down the virtual machine.")
+                    shutdown_vm()
+
+            # Save training data batch
+            if df_train_list:
+                batch_df = pd.concat(df_train_list, ignore_index=True)
+
+                # Add padding to not lose anything during training
+                padding = pd.DataFrame(0, index=range(80), columns=batch_df.columns)
+                batch_df = pd.concat([padding, batch_df], ignore_index=True)
+                batch_df = pd.concat([batch_df, padding], ignore_index=True)
+
+                batch_filename = f'train_batch_{batch_number}.parquet'
+                try:
+                    # Save Parquet file using ZSTD compression
+                    batch_df.to_parquet(f"data/{batch_filename}", engine='pyarrow', compression='zstd')
+                    print(f"Saved Training Batch {batch_number} to {batch_filename}")
+                except Exception as e:
+                    print(f"Error saving batch {batch_number}: {e}")
+                    # Stop the virtual machine if an error occurs
+                    print("An error occurred during saving. Shutting down the virtual machine.")
+                    shutdown_vm()
+                finally:
+                    # Clear memory
+                    del df_train_list[:]
+                    del batch_df
+                    gc.collect()
+
+                batch_number += 1
+
+            # Clear batch_file_list for the next batch
+            batch_file_list = []
+
+    # After all batches are processed, save the testing data
+    if df_test_list:
+        test_df = pd.concat(df_test_list, ignore_index=True)
+
+        # Add padding to testing data as well
+        padding = pd.DataFrame(0, index=range(80), columns=test_df.columns)
+        test_df = pd.concat([padding, test_df], ignore_index=True)
+        test_df = pd.concat([test_df, padding], ignore_index=True)
+
+        test_filename = 'test_data.parquet'
         try:
-            # Call your process_files function
-            df = process_files(path)
-            print(f"Processed File {iterations}/{total_files}: {path}")
-            df_list.append(df)
+            test_df.to_parquet(f"data/{test_filename}", engine='pyarrow', compression='zstd')
+            print(f"Saved Testing Data to {test_filename}")
         except Exception as e:
-            print(f"Error processing {path}: {e}")
+            print(f"Error saving testing data: {e}")
             # Stop the virtual machine if an error occurs
-            print("An error occurred during processing. Shutting down the virtual machine.")
+            print("An error occurred during saving testing data. Shutting down the virtual machine.")
             shutdown_vm()
-
-        # Save batch when batch_size is reached or it's the last file
-        if len(df_list) >= batch_size or iterations == total_files:
-            # Concatenate and save the batch
-            batch_df = pd.concat(df_list, ignore_index=True)
-            batch_filename = f'master_dataframe_batch_{batch_number}.parquet'
-            try:
-                # Save Parquet file using Zappy compression
-                batch_df.to_parquet(f"data/{batch_filename}", engine='pyarrow', compression='zstd')
-                print(f"Saved Batch {batch_number} to {batch_filename}")
-            except Exception as e:
-                print(f"Error saving batch {batch_number}: {e}")
-                # Stop the virtual machine if an error occurs
-                print("An error occurred during saving. Shutting down the virtual machine.")
-                shutdown_vm()
-            finally:
-                # Clear memory
-                del df_list[:]
-                del batch_df
-                gc.collect()
-
-            batch_number += 1
+        finally:
+            # Clear memory
+            del df_test_list[:]
+            del test_df
+            gc.collect()
 
     return
 
@@ -105,8 +152,8 @@ except KeyboardInterrupt:
     shutdown_vm()
 
 except Exception as e:
-    print(f"An unexpected error occurred: {e}")
-    print("Shutting down the virtual machine.")
-    shutdown_vm()
+        print(f"An unexpected error occurred: {e}")
+        print("Shutting down the virtual machine.")
+        shutdown_vm()
 
 shutdown_vm()
