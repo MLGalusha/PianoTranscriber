@@ -114,7 +114,7 @@ def process_files(location):
     # Create DataFrames from spectrogram and piano roll
     spectrogram_df = pd.DataFrame(spectrogram.T)  # Transpose to align time dimension
 
-    if df:
+    if not df.empty:
         # Create piano roll matrix
         piano_roll = create_piano_roll(df, time_df)
 
@@ -143,6 +143,11 @@ def process_files(location):
         bad_data = final_df[is_bad_data]
         final_df = final_df[~is_bad_data].reset_index(drop=True)
 
+        # Fill in data for song to be divisible by 80
+        zeros_df = pd.DataFrame(0, index=range(80 - (final_df.shape[0] % 80)), columns=final_df.columns)
+        final_df = pd.concat([final_df, zeros_df], ignore_index=True)
+
+
 
         # Optionally, handle bad data (e.g., save to a file or log)
         if not bad_data.empty:
@@ -153,7 +158,7 @@ def process_files(location):
         else:
             print("No NaN or Inf values found in the data.")
     else:
-        final_df = torch.FloatTensor(spectrogram_df.values)
+        final_df = spectrogram_df
 
     # Return the cleaned DataFrame
     return final_df
